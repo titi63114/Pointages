@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#17365d">
+  <title>Mon pointage</title>
+  <script src="https://jsdelivr.net"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #f2f5f9;
+      color: #172b4d;
+    }
+    h1 { text-align: center; }
+    input, button {
+      box-sizing: border-box;
+      width: 100%;
+      padding: 15px;
+      margin: 7px 0;
+      font-size: 17px;
+      border-radius: 10px;
+    }
+    input { border: 1px solid #bbb; background: white; }
+    button {
+      border: 0;
+      background: #17365d;
+      color: white;
+      font-weight: bold;
+    }
+    button:disabled { opacity: 0.45; }
+    .pointage { background: #176b45; }
+    .depart { background: #a52a2a; }
+    .panel {
+      background: white;
+      border-radius: 12px;
+      padding: 15px;
+      margin-top: 18px;
+    }
+    #message { white-space: pre-wrap; }
+    li { margin: 10px 0; }
+    small { color: #555; }
+  </style>
+</head>
+<body>
+  <h1>Mon pointage</h1>
+
+  <section class="panel" id="connexion">
+    <h2>Connexion</h2>
+    <input id="email" type="email" placeholder="Adresse e-mail"
+           autocomplete="username">
+    <input id="password" type="password" placeholder="Mot de passe"
+           autocomplete="current-password">
+    <button id="login">Se connecter</button>
+    <button id="logout" hidden>Se déconnecter</button>
+  </section>
+
+  <section class="panel">
+    <h2>Mes horaires</h2>
+    <button class="pointage" data-type="Arrivée" disabled>Arrivée</button>
+    <button data-type="Début de pause" disabled>Début de pause</button>
+    <button data-type="Reprise" disabled>Reprise</button>
+    <button class="depart" data-type="Départ" disabled>Départ</button>
+  </section>
+
+  <section class="panel">
+    <h2>Correction d'une journée</h2>
+    <input type="date" id="jourCorrection">
+    <label>Arrivée</label>
+    <input type="time" id="heureArrivee">
+    <label>Début de pause</label>
+    <input type="time" id="heurePause">
+    <label>Reprise</label>
+    <input type="time" id="heureReprise">
+    <label>Départ</label>
+    <input type="time" id="heureDepart">
+    <button id="creerJournee" disabled>
+      Créer la journée
+    </button>
+  </section>
+
+  <section class="panel">
+    <h2>Derniers pointages</h2>
+    <button id="refresh" disabled>Actualiser</button>
+    <ul id="liste"></ul>
+  </section>
+
+  <p id="message" role="status">Chargement…</p>
+  <p><small id="infos"></small></p>
+
+  <script>
+    // ================= A RENSEIGNER (Supabase > Project Settings > API) =================
+    const SUPABASE_URL = "COLLER_ICI_URL_DU_PROJET";
+    const SUPABASE_KEY = "COLLER_ICI_CLE_PUBLIQUE";
+    // ====================================================================================
+
+    if (SUPABASE_URL.includes("COLLER_ICI") || SUPABASE_KEY.includes("COLLER_ICI")) {
+      document.getElementById("message").textContent =
+        "Application non configurée : renseigne SUPABASE_URL et SUPABASE_KEY dans le fichier index.html.";
+      throw new Error("Configuration Supabase manquante");
+    }
+
+    if (typeof supabase === "undefined") {
+      document.getElementById("message").textContent =
+        "Impossible de charger la bibliothèque Supabase (pas de connexion internet, ou bloqueur de publicités). Recharge la page.";
+      throw new Error("Bibliothèque Supabase introuvable");
+    }
+
+    let hoteProjet = SUPABASE_URL;
+    try { hoteProjet = new URL(SUPABASE_URL).host; } catch (e) { }
+    document.getElementById("infos").textContent = "Projet : " + hoteProjet;
+
+    const options = (location.protocol === "file:")
+      ? { auth: { lock: async (nom, delai, tache) => await tache() } }
+      : {};
+    const client = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, options);
+
+    const message = document.getElementById("message");
+    const boutons = document.querySelectorAll("[data-type]");
+    const liste = document.getElementById("liste");
+    const login = document.getElementById("login");
+    const logout = document.getElementById("logout");
+    const refresh = document.getElementById("refresh");
+    const icreerJournee = document.getElementById("creerJournee");
+
+    let utilisateur = null;
+    let operationEnCours = false;
+
+    function afficherMessage(texte) {
+      message.textContent = texte;
+    }
+
+    function aideAdresse() {
+      return (location.protocol === "file:")
+        ? "\n(La page est ouverte depuis un fichier de ton PC : ouvre-la plutôt par son adresse GitHub, qui commence par https://)"
+        : "";
+    }
+
+    function texteErreur(e) {
+      return (e && e.message) ? e.message : String(e);
+    }
+
+    window.addEventListener("unhandledrejection", e => {
+      afficherMessage("Erreur inattendue : " + texteErreur(e.reason) + aideAdresse());
+    });
+
+    function actualiserInterface() {
+      boutons.forEach(b => b.disabled = !utilisateur || operationEnCours);
+      refresh.disabled = !utilisateur || operationEnCours;
+      if (icreerJournee) icreerJournee.disabled = !utilisateur || operationEnCours;
+      login.disabled = !!utilisateur || operationEnCours;
+      logout.hidden = !utilisateur;
+      document.getElementById("email").disabled = !!utilisateur;
+      document.getElementById("password").disabled = !!utilisateur;
+    }
+
+    async function chargerPointages() {
+      if (!utilisateur) return;
+
+      let data, error;
+      try {
+        ({ data, error } = await client
+          .from("pointages")
+          .select("type_pointage, heure_pointage")
+          .order("heure_pointage", { ascending: false })
+          .limit(30));
+      } catch (e) {
+        error = e;
+      }
+
+      if (error) {
+        afficherMessage("Erreur de lecture : " + texteErreur(error) + aideAdresse());
+        return;
+      }
+
+      liste.replaceChildren();
+
+      if (!data.length) {
+        const li = document.createElement("li");
+        li.textContent = "Aucun pointage pour le moment.";
+        liste.appendChild(li);
+        return;
+      }
+
+      data.forEach(p => {
+        const li = document.createElement("li");
+        const date = new Date(p.heure_pointage);
+        li.textContent = p.type_pointage + " — " +
+          date.toLocaleDateString("fr-FR", {
+            timeZone: "Europe/Paris"
+          }) + " à " +
+          date.toLocaleTimeString("fr-FR", {
+            timeZone: "Europe/Paris",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit"
+          });
+        liste.appendChild(li);
+      });
+    }
+
+    login.addEventListener("click", async () => {
+      const email = document.getElementById("email").value.trim();
+      const password = document.getElementById("password").value;
+
+      if (!email || !password) {
+        afficherMessage("Saisis ton adresse e-mail et ton mot de passe.");
+        return;
+      }
+
+      operationEnCours = true;
+      actualiserInterface();
+      afficherMessage("Connexion en cours…");
+
+      let data, error;
+      try {
+        ({ data, error } = await client.auth.signInWithPassword({
+          email, password
+        }));
+      } catch (e) {
+        error = e;
+      }
+
+      operationEnCours = false;
+
+      if (error) {
+        actualiserInterface();
+        afficherMessage("Connexion impossible : " + texteErreur(error) + aideAdresse());
+        return;
+      }
+
+      utilisateur = data.user;
+      actualiserInterface();
+      afficherMessage("Connecté. Chargement des pointages…");
+      await chargerPointages();
+      afficherMessage("Connecté. Tu peux pointer.");
+    });
+
+    logout.addEventListener("click", async () => {
+      let error = null;
+      try { ({ error } = await client.auth.signOut()); } catch (e) { error = e; }
+      if (error) {
+        afficherMessage("Erreur de déconnexion : " + texteErreur(error));
+        return;
+      }
+      utilisateur = null;
+      actualiserInterface();
+      liste.replaceChildren();
+      afficherMessage("Tu es déconnecté.");
+    });
+
+    boutons.forEach(bouton => {
+      bouton.addEventListener("click", async () => {
+        if (!utilisateur || operationEnCours) return;
+
+        // Fenêtre de confirmation ajoutée ici
+        const confirmation = confirm(`Confirmer le pointage : « ${bouton.dataset.type} » ?`);
+        if (!confirmation) return;
+
+        operationEnCours = true;
+        actualiserInterface();
+        afficherMessage("Enregistrement de « " + bouton.dataset.type + " »…");
+
+        const heure = new Date().toISOString();
+
+        let error = null;
+        try {
+          ({ error } = await client.from("pointages").insert({
+            type_pointage: bouton.dataset.type,
+            heure_pointage: heure,
+            user_id: utilisateur.id
+          }));
+        } catch (e) {
+          error = e;
+        }
+
+        operationEnCours = false;
+        actualiserInterface();
+
+        if (error) {
+          afficherMessage("Pointage non enregistré : " + texteErreur(error) + aideAdresse());
+          return;
+        }
+
+        afficherMessage("Pointage enregistré : " + bouton.dataset.type);
+        await chargerPointages();
+      });
+    });
+
+    refresh.addEventListener("click", chargerPointages);
+
+    async function verifierSession() {
+      let data, error;
+      try {
+        ({ data, error } = await client.auth.getSession());
+      } catch (e) {
+        error = e;
+      }
+
+      if (error) {
+        actualiserInterface();
+        afficherMessage("Erreur de session : " + texteErreur(error) + aideAdresse());
+        return;
+      }
+
+      utilisateur = data.session ? data.session.user : null;
+      actualiserInterface();
+
+      if (utilisateur) {
+        await chargerPointages();
+        afficherMessage("Connecté. Tu peux pointer.");
+      } else {
+        afficherMessage("Connecte-toi pour enregistrer tes pointages.");
+      }
+    }
+
+    verifierSession();
+  </script>
+</body>
+</html>
