@@ -47,7 +47,7 @@
   </style>
 </head>
 <body>
-  <h1>Mon pointage</h1>
+  <h1>Pointage DAVID</h1>
 
   <section class="panel" id="connexion">
     <h2>Connexion</h2>
@@ -66,29 +66,28 @@
     <button data-type="Reprise" disabled>Reprise</button>
     <button class="depart" data-type="Départ" disabled>Départ</button>
   </section>
-<section class="panel">
-  <h2>Correction d'une journée</h2>
 
-  <input type="date" id="jourCorrection">
+  <section class="panel">
+    <h2>Correction d'une journée</h2>
 
-  <label>Arrivée</label>
-  <input type="time" id="heureArrivee">
+    <input type="date" id="jourCorrection">
 
-  <label>Début de pause</label>
-  <input type="time" id="heurePause">
+    <label>Arrivée</label>
+    <input type="time" id="heureArrivee">
 
-  <label>Reprise</label>
-  <input type="time" id="heureReprise">
+    <label>Début de pause</label>
+    <input type="time" id="heurePause">
 
-  <label>Départ</label>
-  <input type="time" id="heureDepart">
+    <label>Reprise</label>
+    <input type="time" id="heureReprise">
 
-  <button id="creerJournee" disabled>
-    Créer la journée
-  </button>
-</section>
+    <label>Départ</label>
+    <input type="time" id="heureDepart">
 
-
+    <button id="creerJournee" disabled>
+      Créer la journée
+    </button>
+  </section>
   
   <section class="panel">
     <h2>Derniers pointages</h2>
@@ -111,6 +110,7 @@
     const login = document.getElementById("login");
     const logout = document.getElementById("logout");
     const refresh = document.getElementById("refresh");
+    const creerJournee = document.getElementById("creerJournee");
 
     let utilisateur = null;
     let operationEnCours = false;
@@ -120,29 +120,28 @@
     }
 
     function actualiserInterface() {
+      boutons.forEach(b =>
+        b.disabled = !utilisateur || operationEnCours
+      );
 
-  boutons.forEach(b =>
-    b.disabled = !utilisateur || operationEnCours
-  );
+      refresh.disabled =
+        !utilisateur || operationEnCours;
 
-  refresh.disabled =
-    !utilisateur || operationEnCours;
+      creerJournee.disabled =
+        !utilisateur || operationEnCours;
 
-  creerJournee.disabled =
-    !utilisateur || operationEnCours;
+      login.disabled =
+        !!utilisateur || operationEnCours;
 
-  login.disabled =
-    !!utilisateur || operationEnCours;
+      logout.hidden =
+        !utilisateur;
 
-  logout.hidden =
-    !utilisateur;
+      document.getElementById("email").disabled =
+        !!utilisateur;
 
-  document.getElementById("email").disabled =
-    !!utilisateur;
-
-  document.getElementById("password").disabled =
-    !!utilisateur;
-}
+      document.getElementById("password").disabled =
+        !!utilisateur;
+    }
 
     async function chargerPointages() {
       if (!utilisateur) return;
@@ -170,16 +169,16 @@
       data.forEach(p => {
         const li = document.createElement("li");
         const date = new Date(p.heure_pointage);
-li.textContent = p.type_pointage + " — " +
-  date.toLocaleDateString("fr-FR", {
-    timeZone: "Europe/Paris"
-  }) + " à " +
-  date.toLocaleTimeString("fr-FR", {
-    timeZone: "Europe/Paris",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit"
-  });
+        li.textContent = p.type_pointage + " — " +
+          date.toLocaleDateString("fr-FR", {
+            timeZone: "Europe/Paris"
+          }) + " à " +
+          date.toLocaleTimeString("fr-FR", {
+            timeZone: "Europe/Paris",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit"
+          });
         liste.appendChild(li);
       });
     }
@@ -232,15 +231,21 @@ li.textContent = p.type_pointage + " — " +
       bouton.addEventListener("click", async () => {
         if (!utilisateur || operationEnCours) return;
 
+        const typePointage = bouton.dataset.type;
+
+        // Demande de confirmation avant d'enregistrer
+        const confirmation = confirm(`Confirmer le pointage : "${typePointage}" maintenant ?`);
+        if (!confirmation) return;
+
         operationEnCours = true;
         actualiserInterface();
-        afficherMessage("Enregistrement de « " + bouton.dataset.type + " »…");
+        afficherMessage("Enregistrement de « " + typePointage + " »…");
 
-        // L'heure est prise au moment où tu appuies sur le bouton.
+        // L'heure est prise au moment où tu appuies sur le bouton (après la confirmation).
         const heure = new Date().toISOString();
 
         const { error } = await client.from("pointages").insert({
-          type_pointage: bouton.dataset.type,
+          type_pointage: typePointage,
           heure_pointage: heure,
           user_id: utilisateur.id
         });
@@ -253,7 +258,7 @@ li.textContent = p.type_pointage + " — " +
           return;
         }
 
-        afficherMessage("Pointage enregistré : " + bouton.dataset.type);
+        afficherMessage("Pointage enregistré : " + typePointage);
         await chargerPointages();
       });
     });
@@ -278,99 +283,72 @@ li.textContent = p.type_pointage + " — " +
         afficherMessage("Connecte-toi pour enregistrer tes pointages.");
       }
     }
-creerJournee.addEventListener("click", async () => {
 
-  if (!utilisateur) return;
+    creerJournee.addEventListener("click", async () => {
+      if (!utilisateur) return;
 
-  const date =
-    document.getElementById("jourCorrection").value;
+      const date = document.getElementById("jourCorrection").value;
+      const arrivee = document.getElementById("heureArrivee").value;
+      const pause = document.getElementById("heurePause").value;
+      const reprise = document.getElementById("heureReprise").value;
+      const depart = document.getElementById("heureDepart").value;
 
-  const arrivee =
-    document.getElementById("heureArrivee").value;
+      if (!date) {
+        afficherMessage("Choisis une date.");
+        return;
+      }
 
-  const pause =
-    document.getElementById("heurePause").value;
+      const pointages = [];
 
-  const reprise =
-    document.getElementById("heureReprise").value;
+      function ajouter(type, heure) {
+        if (!heure) return;
+        pointages.push({
+          type_pointage: type,
+          heure_pointage: new Date(`${date}T${heure}:00`).toISOString(),
+          user_id: utilisateur.id
+        });
+      }
 
-  const depart =
-    document.getElementById("heureDepart").value;
+      ajouter("Arrivée", arrivee);
+      ajouter("Début de pause", pause);
+      ajouter("Reprise", reprise);
+      ajouter("Départ", depart);
 
-  if (!date) {
-    afficherMessage("Choisis une date.");
-    return;
-  }
+      if (pointages.length === 0) {
+        afficherMessage("Saisis au moins une heure.");
+        return;
+      }
 
-  const pointages = [];
+      const confirmation = confirm(`Créer ${pointages.length} pointage(s) pour le ${date} ?`);
+      if (!confirmation) return;
 
-  function ajouter(type, heure) {
+      operationEnCours = true;
+      actualiserInterface();
 
-    if (!heure) return;
+      try {
+        const { error } = await client
+          .from("pointages")
+          .insert(pointages);
 
-    pointages.push({
-      type_pointage: type,
-      heure_pointage: new Date(
-        `${date}T${heure}:00`
-      ).toISOString(),
-      user_id: utilisateur.id
+        if (error) throw error;
+
+        document.getElementById("jourCorrection").value = "";
+        document.getElementById("heureArrivee").value = "";
+        document.getElementById("heurePause").value = "";
+        document.getElementById("heureReprise").value = "";
+        document.getElementById("heureDepart").value = "";
+
+        afficherMessage(`${pointages.length} pointage(s) ajouté(s) avec succès.`);
+        await chargerPointages();
+
+      } catch (e) {
+        afficherMessage("Erreur : " + e.message);
+      } finally {
+        operationEnCours = false;
+        actualiserInterface();
+      }
     });
-  }
 
-  ajouter("Arrivée", arrivee);
-  ajouter("Début de pause", pause);
-  ajouter("Reprise", reprise);
-  ajouter("Départ", depart);
-
-  if (pointages.length === 0) {
-    afficherMessage(
-      "Saisis au moins une heure."
-    );
-    return;
-  }
-
-  const confirmation = confirm(
-    `Créer ${pointages.length} pointage(s) pour le ${date} ?`
-  );
-
-  if (!confirmation) return;
-
-  operationEnCours = true;
-  actualiserInterface();
-
-  try {
-
-    const { error } = await client
-      .from("pointages")
-      .insert(pointages);
-
-    if (error) throw error;
-
-    document.getElementById("jourCorrection").value = "";
-    document.getElementById("heureArrivee").value = "";
-    document.getElementById("heurePause").value = "";
-    document.getElementById("heureReprise").value = "";
-    document.getElementById("heureDepart").value = "";
-
-    afficherMessage(
-      `${pointages.length} pointage(s) ajouté(s) avec succès.`
-    );
-
-    await chargerPointages();
-
-  } catch (e) {
-
-    afficherMessage(
-      "Erreur : " + texteErreur(e)
-    );
-
-  } finally {
-
-    operationEnCours = false;
-    actualiserInterface();
-  }
-
-});
     verifierSession();
   </script>
 </body>
