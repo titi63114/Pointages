@@ -1,10 +1,12 @@
-
 <!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#17365d">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="icon-192.png">
   <title>Mon pointage</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
@@ -16,8 +18,10 @@
       background: #f2f5f9;
       color: #172b4d;
     }
+    [hidden] { display: none !important; }
     h1 { text-align: center; }
-    input, button {
+    h2 { margin-top: 0; }
+    input, button, select {
       box-sizing: border-box;
       width: 100%;
       padding: 15px;
@@ -25,7 +29,7 @@
       font-size: 17px;
       border-radius: 10px;
     }
-    input { border: 1px solid #bbb; background: white; }
+    input, select { border: 1px solid #bbb; background: white; color: inherit; }
     button {
       border: 0;
       background: #17365d;
@@ -35,6 +39,7 @@
     button:disabled { opacity: 0.45; }
     .pointage { background: #176b45; }
     .depart { background: #a52a2a; }
+    .secondaire { background: #5b6b82; }
     .panel {
       background: white;
       border-radius: 12px;
@@ -43,11 +48,45 @@
     }
     #message { white-space: pre-wrap; }
     li { margin: 10px 0; }
-    small { color: #555; }
+    small, .note { color: #555; }
+    .note { font-size: 14px; line-height: 1.4; }
+
+    /* Onglets */
+    .onglets { display: flex; gap: 8px; margin-top: 18px; }
+    .onglets button {
+      margin: 0;
+      padding: 12px 8px;
+      background: #dfe5ee;
+      color: #17365d;
+    }
+    .onglets button[aria-selected="true"] { background: #17365d; color: white; }
+
+    /* Pointage oublié */
+    .ligne-champs { display: flex; gap: 8px; }
+    .ligne-champs > div { flex: 1; min-width: 0; }
+    label { display: block; font-size: 14px; color: #555; margin-top: 8px; }
+    input[type="date"], input[type="time"] { padding: 12px 8px; font-size: 16px; }
+
+    /* Heures supplémentaires */
+    .resume { display: flex; gap: 8px; }
+    .resume > div { flex: 1; background: #eef3f9; border-radius: 10px; padding: 10px; text-align: center; }
+    .resume .titre { font-size: 13px; color: #555; }
+    .resume .valeur { font-size: 24px; font-weight: bold; color: #17365d; margin: 4px 0; }
+    .resume .detail { font-size: 12px; color: #555; }
+    .semaine { background: white; border-radius: 12px; padding: 12px; margin-top: 14px; }
+    .semaine-tete { display: flex; justify-content: space-between; gap: 8px; font-weight: bold; border-bottom: 1px solid #e3e8ef; padding-bottom: 8px; }
+    .semaine-tete span:last-child { text-align: right; color: #17365d; }
+    .jour { padding: 9px 0; border-bottom: 1px solid #f0f2f6; }
+    .jour:last-child { border-bottom: 0; }
+    .jour-tete { display: flex; justify-content: space-between; gap: 8px; font-weight: bold; }
+    .jour-detail { font-size: 14px; color: #555; margin-top: 2px; }
+    .alerte { color: #b45309; font-size: 14px; margin-top: 2px; }
+    .petit { width: auto; padding: 6px 12px; margin: 6px 0 0; font-size: 14px; background: #b45309; }
+    .vide { color: #777; text-align: center; padding: 14px 0; }
   </style>
 </head>
 <body>
-  <h1>Pointage XAVIER</h1>
+  <h1>Mon pointage</h1>
 
   <section class="panel" id="connexion">
     <h2>Connexion</h2>
@@ -59,88 +98,324 @@
     <button id="logout" hidden>Se déconnecter</button>
   </section>
 
-  <section class="panel">
-    <h2>Mes horaires</h2>
-    <button class="pointage" data-type="Arrivée" disabled>Arrivée</button>
-    <button data-type="Début de pause" disabled>Début de pause</button>
-    <button data-type="Reprise" disabled>Reprise</button>
-    <button class="depart" data-type="Départ" disabled>Départ</button>
-  </section>
+  <div class="onglets" id="onglets" role="tablist" hidden>
+    <button id="onglet-pointage" role="tab" aria-selected="true">Pointage</button>
+    <button id="onglet-heures" role="tab" aria-selected="false">Heures supp</button>
+  </div>
 
-  <section class="panel">
-    <h2>Correction d'une journée</h2>
+  <main id="appli" hidden>
+    <!-- ================= Onglet Pointage ================= -->
+    <div id="vue-pointage">
+      <section class="panel">
+        <h2>Mes horaires</h2>
+        <button class="pointage" data-type="Arrivée" disabled>Arrivée</button>
+        <button data-type="Début de pause" disabled>Début de pause</button>
+        <button data-type="Reprise" disabled>Reprise</button>
+        <button class="depart" data-type="Départ" disabled>Départ</button>
+      </section>
 
-    <input type="date" id="jourCorrection">
+      <section class="panel">
+        <h2>Pointage oublié</h2>
+        <button class="secondaire" id="oubli-ouvrir" disabled>Ajouter un pointage oublié</button>
+        <div id="oubli-formulaire" hidden>
+          <label for="oubli-type">Type de pointage</label>
+          <select id="oubli-type">
+            <option>Arrivée</option>
+            <option>Début de pause</option>
+            <option>Reprise</option>
+            <option>Départ</option>
+          </select>
+          <div class="ligne-champs">
+            <div>
+              <label for="oubli-date">Date</label>
+              <input id="oubli-date" type="date">
+            </div>
+            <div>
+              <label for="oubli-heure">Heure</label>
+              <input id="oubli-heure" type="time">
+            </div>
+          </div>
+          <p class="note">Heure de Paris. Le pointage sera repris dans Excel au prochain import.</p>
+          <button class="pointage" id="oubli-enregistrer">Enregistrer ce pointage</button>
+          <button class="secondaire" id="oubli-annuler">Annuler</button>
+        </div>
+      </section>
 
-    <label>Arrivée</label>
-    <input type="time" id="heureArrivee">
+      <section class="panel">
+        <h2>Derniers pointages</h2>
+        <button id="refresh" disabled>Actualiser</button>
+        <ul id="liste"></ul>
+      </section>
+    </div>
 
-    <label>Début de pause</label>
-    <input type="time" id="heurePause">
+    <!-- ================= Onglet Heures supp ================= -->
+    <div id="vue-heures" hidden>
+      <section class="panel">
+        <h2>Heures supplémentaires</h2>
+        <div class="resume">
+          <div>
+            <div class="titre">Récupération</div>
+            <div class="valeur" id="total-recup">—</div>
+            <div class="detail" id="total-recup-jours"></div>
+          </div>
+          <div>
+            <div class="titre">Récupération majorée</div>
+            <div class="valeur" id="total-majoree">—</div>
+            <div class="detail" id="total-majoree-jours"></div>
+          </div>
+        </div>
+        <label for="periode">Période</label>
+        <select id="periode"><option value="tout">Tout</option></select>
+        <label for="arrondi">Arrondi des pointages</label>
+        <select id="arrondi">
+          <option value="60">À l'heure</option>
+          <option value="30">À la demi-heure</option>
+          <option value="15">Au quart d'heure</option>
+          <option value="1">À la minute</option>
+        </select>
+        <button id="heures-actualiser" disabled>Actualiser</button>
+      </section>
 
-    <label>Reprise</label>
-    <input type="time" id="heureReprise">
+      <div id="semaines"></div>
 
-    <label>Départ</label>
-    <input type="time" id="heureDepart">
+      <p class="note">
+        Calcul à partir des pointages enregistrés (premier pointage de chaque type par jour, arrondi comme à l'import
+        Excel) : 8 h par jour, 7 h le vendredi, tout compte le week-end ; majoration de 25 % puis de 50 %
+        au-delà de 4 h par semaine. Une journée incomplète ne compte pas tant qu'il manque un pointage.
+        L'arrondi doit être le même que dans le script d'import. Les lignes modifiées à la main dans Excel et les
+        récupérations déjà prises ne sont pas connues de cette page.
+      </p>
+    </div>
+  </main>
 
-    <button id="creerJournee" disabled>
-      Créer la journée
-    </button>
-  </section>
-  
-  <section class="panel">
-    <h2>Derniers pointages</h2>
-    <button id="refresh" disabled>Actualiser</button>
-    <ul id="liste"></ul>
-  </section>
-
-  <p id="message" role="status">Configure la connexion Supabase dans le code.</p>
+  <p id="message" role="status">Chargement…</p>
 
   <script>
-    // Remplace ces deux valeurs par celles de TON projet Supabase.
+    // ==== CALCUL (début) ====
+    // Règles du classeur Excel, reproduites à l'identique (voir le LISEZ-MOI). Fonctions pures, sans accès à la page.
+    const TYPES_POINTAGE = ["Arrivée", "Début de pause", "Reprise", "Départ"];
+    const FUSEAU = "Europe/Paris";
+    const formatParis = new Intl.DateTimeFormat("en-GB", {
+      timeZone: FUSEAU, hourCycle: "h23",
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit"
+    });
+
+    function deuxChiffres(n) { return String(n).padStart(2, "0"); }
+
+    function partiesParis(ms) {
+      const p = {};
+      for (const x of formatParis.formatToParts(new Date(ms))) {
+        if (x.type !== "literal") p[x.type] = parseInt(x.value, 10);
+      }
+      return p;
+    }
+
+    // Jour (AAAA-MM-JJ) et minutes depuis minuit, à l'heure de Paris, pour un instant donné.
+    function jourEtMinutesParis(ms) {
+      const p = partiesParis(ms);
+      return {
+        jour: p.year + "-" + deuxChiffres(p.month) + "-" + deuxChiffres(p.day),
+        minutes: p.hour * 60 + p.minute + p.second / 60
+      };
+    }
+
+    // Décalage de Paris par rapport à UTC (en minutes) à un instant donné : 60 en hiver, 120 en été.
+    function decalageParisMinutes(ms) {
+      const p = partiesParis(ms);
+      const localCommeUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+      return Math.round((localCommeUtc - Math.floor(ms / 1000) * 1000) / 60000);
+    }
+
+    // Heure saisie à Paris -> instant UTC (en ms). Renvoie null si cette heure n'existe pas (passage à l'heure d'été).
+    // Si elle existe deux fois (passage à l'heure d'hiver), on retient la première.
+    function parisVersUtc(annee, mois, jour, heure, minute) {
+      const naif = Date.UTC(annee, mois - 1, jour, heure, minute);
+      for (const decalage of [120, 60]) {
+        const utc = naif - decalage * 60000;
+        if (decalageParisMinutes(utc) === decalage) return utc;
+      }
+      return null;
+    }
+
+    // Même règle que le script d'import : multiple le plus proche du pas, jamais 24:00.
+    function arrondir(minutes, pas) {
+      if (!(pas >= 1)) pas = 1;
+      let r = Math.floor(minutes / pas + 0.5) * pas;
+      if (r >= 1440) r = 1439;
+      return r;
+    }
+
+    function ajouterJours(jour, n) {
+      const [a, m, d] = jour.split("-").map(Number);
+      const dt = new Date(Date.UTC(a, m - 1, d + n));
+      return dt.getUTCFullYear() + "-" + deuxChiffres(dt.getUTCMonth() + 1) + "-" + deuxChiffres(dt.getUTCDate());
+    }
+
+    // 1 = lundi ... 7 = dimanche
+    function jourSemaineIso(jour) {
+      const [a, m, d] = jour.split("-").map(Number);
+      return (new Date(Date.UTC(a, m - 1, d)).getUTCDay() + 6) % 7 + 1;
+    }
+
+    function lundiDe(jour) { return ajouterJours(jour, -(jourSemaineIso(jour) - 1)); }
+
+    // Durée normale d'une journée (minutes) : 8 h, 7 h le vendredi, 0 le week-end.
+    function normeMinutes(jour) {
+      const j = jourSemaineIso(jour);
+      return j >= 6 ? 0 : (j === 5 ? 420 : 480);
+    }
+
+    // jour -> [arrivée, début de pause, reprise, départ] en minutes (premier pointage de chaque type, arrondi)
+    function regrouperParJour(pointages, pas) {
+      const tries = [...pointages].sort((a, b) => new Date(a.heure_pointage) - new Date(b.heure_pointage));
+      const jours = new Map();
+      for (const p of tries) {
+        const idx = TYPES_POINTAGE.indexOf(p.type_pointage);
+        if (idx < 0) continue;
+        const ms = new Date(p.heure_pointage).getTime();
+        if (Number.isNaN(ms)) continue;
+        const { jour, minutes } = jourEtMinutesParis(ms);
+        if (!jours.has(jour)) jours.set(jour, [null, null, null, null]);
+        const h = jours.get(jour);
+        if (h[idx] === null) h[idx] = arrondir(minutes, pas);
+      }
+      return jours;
+    }
+
+    // Colonne CONTRÔLE du classeur.
+    function statutJour(h) {
+      const B = h[0], C = h[1], D = h[2], E = h[3];
+      if (B === null || E === null) {
+        return "Manque : " + (B === null ? (E === null ? "arrivée et départ" : "arrivée") : "départ");
+      }
+      if ((C !== null || D !== null) && (C === null || D === null)) return "Pause incomplète";
+      if (E <= B || (C !== null && (C <= B || D <= C || E <= D))) return "Horaires incohérents";
+      return "OK";
+    }
+
+    // Colonnes « heures récupération » (F) et « récupération majorée » (G) du classeur, en minutes.
+    function calculerJours(pointages, pas) {
+      const regroupes = regrouperParJour(pointages, pas);
+      const jours = [...regroupes.keys()].sort().map(jour => {
+        const h = regroupes.get(jour);
+        const statut = statutJour(h);
+        let F = null;
+        if (statut === "OK") {
+          const travaille = (h[1] === null && h[2] === null) ? h[3] - h[0] : (h[1] - h[0]) + (h[3] - h[2]);
+          F = Math.max(0, travaille - normeMinutes(jour));
+        }
+        return { jour, h, statut, F, G: null, S: 0 };
+      });
+      for (const j of jours) {
+        if (j.F === null) continue;
+        const lundi = lundiDe(j.jour);
+        let S = 0;   // heures de récupération des jours précédents de la même semaine
+        for (const k of jours) if (k.F !== null && k.jour >= lundi && k.jour < j.jour) S += k.F;
+        j.S = S;
+        if (Math.round(j.F) !== 0) {
+          j.G = j.F * 1.25 + 0.25 * (Math.max(0, S + j.F - 240) - Math.max(0, S - 240));
+        }
+      }
+      return jours;
+    }
+
+    function formaterHeures(minutes) {
+      if (minutes === null || minutes === undefined) return "—";
+      const m = Math.floor(minutes + 0.5);
+      return Math.floor(m / 60) + "H" + deuxChiffres(m % 60);
+    }
+
+    // « 2 jour(s) et 3H05 » : même conversion que le classeur (une semaine de 39 h = 5 jours, sinon 8 h par jour).
+    function formaterJoursEtHeures(minutes) {
+      const M = Math.floor(minutes + 0.5);
+      const jours = Math.floor(M / 2340) * 5 + Math.floor((M % 2340) / 480);
+      const reste = (M % 2340) % 480;
+      return jours + " jour(s) et " + Math.floor(reste / 60) + "H" + deuxChiffres(M % 60);
+    }
+    // ==== CALCUL (fin) ====
+
+    // Mode appli : met la page en cache pour un démarrage rapide (les données, elles, viennent toujours du réseau).
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => { navigator.serviceWorker.register("sw.js").catch(() => {}); });
+    }
+
+    // ================= A RENSEIGNER (Supabase > Project Settings > API) =================
+    // Project URL, par exemple : https://abcdefghijkl.supabase.co
     const SUPABASE_URL = "https://ucgebczfvziswqxeheqv.supabase.co";
+    // Clé PUBLIQUE uniquement (publishable ou anon). JAMAIS la clé secrète / service_role.
     const SUPABASE_KEY = "sb_publishable_cxnaYbhAofOYEo1Dl4EchQ_4z1bzoLC";
+    // ====================================================================================
+
+    if (SUPABASE_URL.includes("COLLER_ICI") || SUPABASE_KEY.includes("COLLER_ICI")) {
+      document.getElementById("message").textContent =
+        "Application non configurée : renseigne SUPABASE_URL et SUPABASE_KEY dans le fichier index.html.";
+      throw new Error("Configuration Supabase manquante");
+    }
+    if (typeof supabase === "undefined") {
+      document.getElementById("message").textContent =
+        "Connexion internet nécessaire pour charger l'application. Réessaie une fois connecté.";
+      throw new Error("supabase-js non chargé");
+    }
 
     const client = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-    const message = document.getElementById("message");
+    const $ = id => document.getElementById(id);
+    const message = $("message");
     const boutons = document.querySelectorAll("[data-type]");
-    const liste = document.getElementById("liste");
-    const login = document.getElementById("login");
-    const logout = document.getElementById("logout");
-    const refresh = document.getElementById("refresh");
-    const creerJournee = document.getElementById("creerJournee");
+    const liste = $("liste");
+    const login = $("login");
+    const logout = $("logout");
+    const refresh = $("refresh");
 
     let utilisateur = null;
     let operationEnCours = false;
+    let ongletActif = "pointage";
+    let pointagesComplets = null;   // tous les pointages, chargés à l'ouverture de l'onglet « Heures supp »
 
     function afficherMessage(texte) {
       message.textContent = texte;
     }
 
+    function creer(balise, classe, texte) {
+      const e = document.createElement(balise);
+      if (classe) e.className = classe;
+      if (texte !== undefined) e.textContent = texte;
+      return e;
+    }
+
     function actualiserInterface() {
-      boutons.forEach(b =>
-        b.disabled = !utilisateur || operationEnCours
-      );
+      const bloque = !utilisateur || operationEnCours;
+      boutons.forEach(b => b.disabled = bloque);
+      refresh.disabled = bloque;
+      $("oubli-ouvrir").disabled = bloque;
+      $("oubli-enregistrer").disabled = bloque;
+      $("heures-actualiser").disabled = bloque;
+      login.disabled = !!utilisateur || operationEnCours;
+      logout.hidden = !utilisateur;
+      $("email").disabled = !!utilisateur;
+      $("password").disabled = !!utilisateur;
+      $("appli").hidden = !utilisateur;
+      $("onglets").hidden = !utilisateur;
+    }
 
-      refresh.disabled =
-        !utilisateur || operationEnCours;
+    // ---------- Onglets ----------
+    function choisirOnglet(nom) {
+      ongletActif = nom;
+      $("vue-pointage").hidden = nom !== "pointage";
+      $("vue-heures").hidden = nom !== "heures";
+      $("onglet-pointage").setAttribute("aria-selected", String(nom === "pointage"));
+      $("onglet-heures").setAttribute("aria-selected", String(nom === "heures"));
+      if (nom === "heures" && utilisateur && pointagesComplets === null) rafraichirHeures();
+    }
+    $("onglet-pointage").addEventListener("click", () => choisirOnglet("pointage"));
+    $("onglet-heures").addEventListener("click", () => choisirOnglet("heures"));
 
-      creerJournee.disabled =
-        !utilisateur || operationEnCours;
-
-      login.disabled =
-        !!utilisateur || operationEnCours;
-
-      logout.hidden =
-        !utilisateur;
-
-      document.getElementById("email").disabled =
-        !!utilisateur;
-
-      document.getElementById("password").disabled =
-        !!utilisateur;
+    // ---------- Derniers pointages ----------
+    function dateLisible(iso) {
+      const date = new Date(iso);
+      return date.toLocaleDateString("fr-FR", { timeZone: FUSEAU }) + " à " +
+        date.toLocaleTimeString("fr-FR", { timeZone: FUSEAU, hour: "2-digit", minute: "2-digit", second: "2-digit" });
     }
 
     async function chargerPointages() {
@@ -160,32 +435,19 @@
       liste.replaceChildren();
 
       if (!data.length) {
-        const li = document.createElement("li");
-        li.textContent = "Aucun pointage pour le moment.";
-        liste.appendChild(li);
+        liste.appendChild(creer("li", "", "Aucun pointage pour le moment."));
         return;
       }
 
       data.forEach(p => {
-        const li = document.createElement("li");
-        const date = new Date(p.heure_pointage);
-        li.textContent = p.type_pointage + " — " +
-          date.toLocaleDateString("fr-FR", {
-            timeZone: "Europe/Paris"
-          }) + " à " +
-          date.toLocaleTimeString("fr-FR", {
-            timeZone: "Europe/Paris",
-            hour: "2-digit",
-            minute: "2-digit",
-            second: "2-digit"
-          });
-        liste.appendChild(li);
+        liste.appendChild(creer("li", "", p.type_pointage + " — " + dateLisible(p.heure_pointage)));
       });
     }
 
+    // ---------- Connexion ----------
     login.addEventListener("click", async () => {
-      const email = document.getElementById("email").value.trim();
-      const password = document.getElementById("password").value;
+      const email = $("email").value.trim();
+      const password = $("password").value;
 
       if (!email || !password) {
         afficherMessage("Saisis ton adresse e-mail et ton mot de passe.");
@@ -209,6 +471,7 @@
       }
 
       utilisateur = data.user;
+      pointagesComplets = null;
       actualiserInterface();
       afficherMessage("Connecté. Chargement des pointages…");
       await chargerPointages();
@@ -222,30 +485,35 @@
         return;
       }
       utilisateur = null;
+      pointagesComplets = null;
+      choisirOnglet("pointage");
       actualiserInterface();
       liste.replaceChildren();
+      $("semaines").replaceChildren();
       afficherMessage("Tu es déconnecté.");
     });
 
+    // ---------- Pointage (boutons) ----------
     boutons.forEach(bouton => {
       bouton.addEventListener("click", async () => {
         if (!utilisateur || operationEnCours) return;
 
-        const typePointage = bouton.dataset.type;
-
-        // Demande de confirmation avant d'enregistrer
-        const confirmation = confirm(`Confirmer le pointage : "${typePointage}" maintenant ?`);
-        if (!confirmation) return;
+        // Confirmation pour éviter une mauvaise manipulation.
+        const heureAffichee = new Date().toLocaleTimeString("fr-FR", { timeZone: FUSEAU, hour: "2-digit", minute: "2-digit" });
+        if (!window.confirm("Enregistrer « " + bouton.dataset.type + " » à " + heureAffichee + " ?")) {
+          afficherMessage("Pointage annulé.");
+          return;
+        }
 
         operationEnCours = true;
         actualiserInterface();
-        afficherMessage("Enregistrement de « " + typePointage + " »…");
+        afficherMessage("Enregistrement de « " + bouton.dataset.type + " »…");
 
-        // L'heure est prise au moment où tu appuies sur le bouton (après la confirmation).
+        // L'heure est prise au moment où tu appuies sur le bouton.
         const heure = new Date().toISOString();
 
         const { error } = await client.from("pointages").insert({
-          type_pointage: typePointage,
+          type_pointage: bouton.dataset.type,
           heure_pointage: heure,
           user_id: utilisateur.id
         });
@@ -258,13 +526,245 @@
           return;
         }
 
-        afficherMessage("Pointage enregistré : " + typePointage);
+        pointagesComplets = null;
+        afficherMessage("Pointage enregistré : " + bouton.dataset.type);
         await chargerPointages();
       });
     });
 
     refresh.addEventListener("click", chargerPointages);
 
+    // ---------- Pointage oublié ----------
+    function aujourdhuiParis() { return jourEtMinutesParis(Date.now()).jour; }
+
+    function ouvrirOubli(type, jour) {
+      choisirOnglet("pointage");
+      $("oubli-type").value = type || "Arrivée";
+      $("oubli-date").max = aujourdhuiParis();
+      $("oubli-date").value = jour || aujourdhuiParis();
+      $("oubli-heure").value = "";
+      $("oubli-formulaire").hidden = false;
+      $("oubli-heure").focus();
+      $("oubli-formulaire").scrollIntoView({ block: "center" });
+    }
+
+    $("oubli-ouvrir").addEventListener("click", () => ouvrirOubli());
+    $("oubli-annuler").addEventListener("click", () => { $("oubli-formulaire").hidden = true; });
+
+    $("oubli-enregistrer").addEventListener("click", async () => {
+      if (!utilisateur || operationEnCours) return;
+
+      const type = $("oubli-type").value;
+      const date = $("oubli-date").value;
+      const heure = $("oubli-heure").value;
+      if (!date || !heure) {
+        afficherMessage("Choisis la date et l'heure du pointage oublié.");
+        return;
+      }
+
+      const [annee, mois, jour] = date.split("-").map(Number);
+      const [h, mi] = heure.split(":").map(Number);
+      const instant = parisVersUtc(annee, mois, jour, h, mi);
+      if (instant === null) {
+        afficherMessage("Cette heure n'existe pas (passage à l'heure d'été). Choisis-en une autre.");
+        return;
+      }
+      if (instant > Date.now() + 2 * 60000) {
+        afficherMessage("Cette date et cette heure sont dans le futur.");
+        return;
+      }
+
+      operationEnCours = true;
+      actualiserInterface();
+      afficherMessage("Vérification…");
+
+      try {
+        // Un pointage de ce type existe-t-il déjà ce jour-là (heure de Paris) ?
+        const suivant = ajouterJours(date, 1).split("-").map(Number);
+        const debutJour = parisVersUtc(annee, mois, jour, 0, 0);
+        const finJour = parisVersUtc(suivant[0], suivant[1], suivant[2], 0, 0);
+        const { data: existants, error: erreurLecture } = await client
+          .from("pointages")
+          .select("heure_pointage")
+          .eq("type_pointage", type)
+          .gte("heure_pointage", new Date(debutJour).toISOString())
+          .lt("heure_pointage", new Date(finJour).toISOString());
+        if (erreurLecture) throw erreurLecture;
+
+        if (existants.length) {
+          const deja = new Date(existants[0].heure_pointage).toLocaleTimeString("fr-FR", { timeZone: FUSEAU, hour: "2-digit", minute: "2-digit" });
+          const suite = window.confirm(
+            "Un pointage « " + type + " » existe déjà ce jour-là (" + deja + ").\n" +
+            "L'import Excel ne retient que le premier de chaque type.\n\nL'ajouter quand même ?");
+          if (!suite) {
+            afficherMessage("Pointage oublié non enregistré.");
+            return;
+          }
+        }
+
+        afficherMessage("Enregistrement de « " + type + " »…");
+        const { error } = await client.from("pointages").insert({
+          type_pointage: type,
+          heure_pointage: new Date(instant).toISOString(),
+          user_id: utilisateur.id
+        });
+        if (error) throw error;
+
+        $("oubli-formulaire").hidden = true;
+        pointagesComplets = null;
+        afficherMessage("Pointage oublié enregistré : " + type + " le " +
+          jour.toString().padStart(2, "0") + "/" + deuxChiffres(mois) + "/" + annee + " à " + deuxChiffres(h) + ":" + deuxChiffres(mi));
+        await chargerPointages();
+        if (ongletActif === "heures") await rafraichirHeures();
+      } catch (e) {
+        afficherMessage("Pointage non enregistré : " + (e && e.message ? e.message : e));
+      } finally {
+        operationEnCours = false;
+        actualiserInterface();
+      }
+    });
+
+    // ---------- Heures supplémentaires ----------
+    async function chargerTousLesPointages() {
+      const tout = [];
+      const taille = 1000;
+      for (let debut = 0; ; debut += taille) {
+        const { data, error } = await client
+          .from("pointages")
+          .select("type_pointage, heure_pointage")
+          .order("heure_pointage", { ascending: true })
+          .range(debut, debut + taille - 1);
+        if (error) throw error;
+        tout.push(...data);
+        if (data.length < taille) break;
+      }
+      return tout;
+    }
+
+    async function rafraichirHeures() {
+      if (!utilisateur) return;
+      operationEnCours = true;
+      actualiserInterface();
+      afficherMessage("Chargement des pointages…");
+      try {
+        pointagesComplets = await chargerTousLesPointages();
+        afficherHeures();
+        afficherMessage("Heures supplémentaires à jour (" + pointagesComplets.length + " pointage(s)).");
+      } catch (e) {
+        afficherMessage("Erreur de lecture : " + (e && e.message ? e.message : e));
+      } finally {
+        operationEnCours = false;
+        actualiserInterface();
+      }
+    }
+
+    function nomMois(cle) {
+      const [a, m] = cle.split("-").map(Number);
+      return new Date(Date.UTC(a, m - 1, 1)).toLocaleDateString("fr-FR", { month: "long", year: "numeric", timeZone: "UTC" });
+    }
+
+    function jourLisible(jour) {
+      const [a, m, d] = jour.split("-").map(Number);
+      return new Date(Date.UTC(a, m - 1, d)).toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "2-digit", timeZone: "UTC" });
+    }
+
+    function courtJour(jour) { return jour.slice(8, 10) + "/" + jour.slice(5, 7); }
+
+    function typeASaisir(h) {
+      if (h[0] === null) return "Arrivée";
+      if (h[1] !== null && h[2] === null) return "Reprise";
+      if (h[1] === null && h[2] !== null) return "Début de pause";
+      return "Départ";
+    }
+
+    function afficherHeures() {
+      if (pointagesComplets === null) return;
+      const pas = parseInt($("arrondi").value, 10);
+      const tous = calculerJours(pointagesComplets, pas);
+
+      // Liste des périodes (mois présents), en conservant le choix courant
+      const choix = $("periode").value;
+      const mois = [...new Set(tous.map(j => j.jour.slice(0, 7)))].sort().reverse();
+      const selecteur = $("periode");
+      selecteur.replaceChildren(new Option("Tout", "tout"));
+      mois.forEach(m => selecteur.appendChild(new Option(nomMois(m), m)));
+      selecteur.value = (choix === "tout" || mois.includes(choix)) ? choix : "tout";
+
+      const visibles = tous.filter(j => selecteur.value === "tout" || j.jour.startsWith(selecteur.value));
+
+      let totalF = 0, totalG = 0;
+      visibles.forEach(j => { if (j.F !== null) totalF += j.F; if (j.G !== null) totalG += j.G; });
+      $("total-recup").textContent = formaterHeures(totalF);
+      $("total-recup-jours").textContent = formaterJoursEtHeures(totalF);
+      $("total-majoree").textContent = formaterHeures(totalG);
+      $("total-majoree-jours").textContent = formaterJoursEtHeures(totalG);
+
+      const conteneur = $("semaines");
+      conteneur.replaceChildren();
+      if (!visibles.length) {
+        conteneur.appendChild(creer("p", "vide", "Aucun pointage sur cette période."));
+        return;
+      }
+
+      // Semaines (lundi à dimanche), la plus récente en premier
+      const semaines = new Map();
+      visibles.forEach(j => {
+        const lundi = lundiDe(j.jour);
+        if (!semaines.has(lundi)) semaines.set(lundi, []);
+        semaines.get(lundi).push(j);
+      });
+
+      [...semaines.keys()].sort().reverse().forEach(lundi => {
+        const jours = semaines.get(lundi);
+        let f = 0, g = 0;
+        jours.forEach(j => { if (j.F !== null) f += j.F; if (j.G !== null) g += j.G; });
+
+        const carte = creer("section", "semaine");
+        const tete = creer("div", "semaine-tete");
+        tete.appendChild(creer("span", "", "Semaine du " + courtJour(lundi) + " au " + courtJour(ajouterJours(lundi, 6))));
+        tete.appendChild(creer("span", "", formaterHeures(f) + " · majorée " + formaterHeures(g)));
+        carte.appendChild(tete);
+
+        [...jours].sort((a, b) => (a.jour < b.jour ? 1 : -1)).forEach(j => {
+          const ligne = creer("div", "jour");
+          const haut = creer("div", "jour-tete");
+          haut.appendChild(creer("span", "", jourLisible(j.jour)));
+          haut.appendChild(creer("span", "", j.F === null ? "—" : (j.F === 0 ? "0H00" : "+" + formaterHeures(j.F))));
+          ligne.appendChild(haut);
+
+          const h = j.h;
+          const morceaux = [];
+          if (h[0] !== null) morceaux.push(formaterHeures(h[0]));
+          if (h[1] !== null) morceaux.push("pause " + formaterHeures(h[1]));
+          if (h[2] !== null) morceaux.push("reprise " + formaterHeures(h[2]));
+          if (h[3] !== null) morceaux.push(formaterHeures(h[3]));
+          ligne.appendChild(creer("div", "jour-detail", morceaux.join(" → ") + (j.G !== null ? "  ·  majorée " + formaterHeures(j.G) : "")));
+
+          if (j.statut !== "OK") {
+            ligne.appendChild(creer("div", "alerte", j.statut + " : non compté"));
+            const bouton = creer("button", "petit", "Compléter");
+            bouton.addEventListener("click", () => ouvrirOubli(typeASaisir(h), j.jour));
+            ligne.appendChild(bouton);
+          }
+          carte.appendChild(ligne);
+        });
+        conteneur.appendChild(carte);
+      });
+    }
+
+    // Réglage de l'arrondi, mémorisé sur ce téléphone
+    try {
+      const memorise = localStorage.getItem("arrondiMinutes");
+      if (memorise && ["60", "30", "15", "1"].includes(memorise)) $("arrondi").value = memorise;
+    } catch (e) { }
+    $("arrondi").addEventListener("change", () => {
+      try { localStorage.setItem("arrondiMinutes", $("arrondi").value); } catch (e) { }
+      afficherHeures();
+    });
+    $("periode").addEventListener("change", afficherHeures);
+    $("heures-actualiser").addEventListener("click", rafraichirHeures);
+
+    // ---------- Démarrage ----------
     async function verifierSession() {
       const { data, error } = await client.auth.getSession();
 
@@ -283,71 +783,6 @@
         afficherMessage("Connecte-toi pour enregistrer tes pointages.");
       }
     }
-
-    creerJournee.addEventListener("click", async () => {
-      if (!utilisateur) return;
-
-      const date = document.getElementById("jourCorrection").value;
-      const arrivee = document.getElementById("heureArrivee").value;
-      const pause = document.getElementById("heurePause").value;
-      const reprise = document.getElementById("heureReprise").value;
-      const depart = document.getElementById("heureDepart").value;
-
-      if (!date) {
-        afficherMessage("Choisis une date.");
-        return;
-      }
-
-      const pointages = [];
-
-      function ajouter(type, heure) {
-        if (!heure) return;
-        pointages.push({
-          type_pointage: type,
-          heure_pointage: new Date(`${date}T${heure}:00`).toISOString(),
-          user_id: utilisateur.id
-        });
-      }
-
-      ajouter("Arrivée", arrivee);
-      ajouter("Début de pause", pause);
-      ajouter("Reprise", reprise);
-      ajouter("Départ", depart);
-
-      if (pointages.length === 0) {
-        afficherMessage("Saisis au moins une heure.");
-        return;
-      }
-
-      const confirmation = confirm(`Créer ${pointages.length} pointage(s) pour le ${date} ?`);
-      if (!confirmation) return;
-
-      operationEnCours = true;
-      actualiserInterface();
-
-      try {
-        const { error } = await client
-          .from("pointages")
-          .insert(pointages);
-
-        if (error) throw error;
-
-        document.getElementById("jourCorrection").value = "";
-        document.getElementById("heureArrivee").value = "";
-        document.getElementById("heurePause").value = "";
-        document.getElementById("heureReprise").value = "";
-        document.getElementById("heureDepart").value = "";
-
-        afficherMessage(`${pointages.length} pointage(s) ajouté(s) avec succès.`);
-        await chargerPointages();
-
-      } catch (e) {
-        afficherMessage("Erreur : " + e.message);
-      } finally {
-        operationEnCours = false;
-        actualiserInterface();
-      }
-    });
 
     verifierSession();
   </script>
