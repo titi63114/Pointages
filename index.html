@@ -83,6 +83,15 @@
     .alerte { color: #b45309; font-size: 14px; margin-top: 2px; }
     .petit { width: auto; padding: 6px 12px; margin: 6px 0 0; font-size: 14px; background: #b45309; }
     .vide { color: #777; text-align: center; padding: 14px 0; }
+
+    /* Gérer (supprimer / modifier) */
+    .gerer-liste { list-style: none; padding: 0; margin: 10px 0 0; }
+    .gerer-ligne { display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-bottom: 1px solid #f0f2f6; }
+    .gerer-ligne:last-child { border-bottom: 0; }
+    .gerer-ligne input[type="checkbox"] { width: 26px; height: 26px; margin: 0; padding: 0; flex: none; }
+    .gerer-ligne label { margin: 0; flex: 1; font-size: 16px; color: inherit; }
+    .gerer-ligne .synchro { display: block; font-size: 12px; color: #555; }
+    .danger { background: #a52a2a; }
   </style>
 </head>
 <body>
@@ -101,6 +110,7 @@
   <div class="onglets" id="onglets" role="tablist" hidden>
     <button id="onglet-pointage" role="tab" aria-selected="true">Pointage</button>
     <button id="onglet-heures" role="tab" aria-selected="false">Heures supp</button>
+    <button id="onglet-gerer" role="tab" aria-selected="false">Gérer</button>
   </div>
 
   <main id="appli" hidden>
@@ -184,6 +194,55 @@
         au-delà de 4 h par semaine. Une journée incomplète ne compte pas tant qu'il manque un pointage.
         L'arrondi doit être le même que dans le script d'import. Les lignes modifiées à la main dans Excel et les
         récupérations déjà prises ne sont pas connues de cette page.
+      </p>
+    </div>
+
+    <!-- ================= Onglet Gérer ================= -->
+    <div id="vue-gerer" hidden>
+      <section class="panel">
+        <h2>Gérer mes pointages</h2>
+        <div class="ligne-champs">
+          <div>
+            <label for="gerer-du">Du</label>
+            <input id="gerer-du" type="date">
+          </div>
+          <div>
+            <label for="gerer-au">Au</label>
+            <input id="gerer-au" type="date">
+          </div>
+        </div>
+        <button id="gerer-afficher" disabled>Afficher</button>
+        <ul class="gerer-liste" id="gerer-liste"></ul>
+        <button class="danger" id="gerer-supprimer" disabled>Supprimer la sélection</button>
+        <button class="secondaire" id="gerer-modifier" disabled>Modifier le pointage sélectionné</button>
+
+        <div id="gerer-modif-formulaire" hidden>
+          <h2>Modifier le pointage</h2>
+          <label for="gerer-type">Type de pointage</label>
+          <select id="gerer-type">
+            <option>Arrivée</option>
+            <option>Début de pause</option>
+            <option>Reprise</option>
+            <option>Départ</option>
+          </select>
+          <div class="ligne-champs">
+            <div>
+              <label for="gerer-date">Date</label>
+              <input id="gerer-date" type="date">
+            </div>
+            <div>
+              <label for="gerer-heure">Heure</label>
+              <input id="gerer-heure" type="time">
+            </div>
+          </div>
+          <button class="pointage" id="gerer-enregistrer">Enregistrer la modification</button>
+          <button class="secondaire" id="gerer-annuler">Annuler</button>
+        </div>
+      </section>
+      <p class="note">
+        Heure de Paris. Supprimer ou modifier un pointage ici ne change pas ton classeur Excel : si le pointage a déjà été
+        copié dans Excel (mention « copié dans Excel »), corrige aussi la cellule dans Excel. Cette fonction demande que
+        le fichier gestion-pointages-OPTIONNEL.sql ait été exécuté une fois dans Supabase.
       </p>
     </div>
   </main>
@@ -372,6 +431,8 @@
     let operationEnCours = false;
     let ongletActif = "pointage";
     let pointagesComplets = null;   // tous les pointages, chargés à l'ouverture de l'onglet « Heures supp »
+    let gererLignes = [];           // pointages affichés dans l'onglet « Gérer »
+    const gererSelection = new Set();
 
     function afficherMessage(texte) {
       message.textContent = texte;
@@ -391,6 +452,10 @@
       $("oubli-ouvrir").disabled = bloque;
       $("oubli-enregistrer").disabled = bloque;
       $("heures-actualiser").disabled = bloque;
+      $("gerer-afficher").disabled = bloque;
+      $("gerer-supprimer").disabled = bloque || gererSelection.size === 0;
+      $("gerer-modifier").disabled = bloque || gererSelection.size !== 1;
+      $("gerer-enregistrer").disabled = bloque;
       login.disabled = !!utilisateur || operationEnCours;
       logout.hidden = !utilisateur;
       $("email").disabled = !!utilisateur;
@@ -404,12 +469,16 @@
       ongletActif = nom;
       $("vue-pointage").hidden = nom !== "pointage";
       $("vue-heures").hidden = nom !== "heures";
+      $("vue-gerer").hidden = nom !== "gerer";
       $("onglet-pointage").setAttribute("aria-selected", String(nom === "pointage"));
       $("onglet-heures").setAttribute("aria-selected", String(nom === "heures"));
+      $("onglet-gerer").setAttribute("aria-selected", String(nom === "gerer"));
       if (nom === "heures" && utilisateur && pointagesComplets === null) rafraichirHeures();
+      if (nom === "gerer" && utilisateur) ouvrirGerer();
     }
     $("onglet-pointage").addEventListener("click", () => choisirOnglet("pointage"));
     $("onglet-heures").addEventListener("click", () => choisirOnglet("heures"));
+    $("onglet-gerer").addEventListener("click", () => choisirOnglet("gerer"));
 
     // ---------- Derniers pointages ----------
     function dateLisible(iso) {
@@ -490,6 +559,10 @@
       actualiserInterface();
       liste.replaceChildren();
       $("semaines").replaceChildren();
+      gererLignes = [];
+      gererSelection.clear();
+      $("gerer-liste").replaceChildren();
+      $("gerer-modif-formulaire").hidden = true;
       afficherMessage("Tu es déconnecté.");
     });
 
@@ -763,6 +836,207 @@
     });
     $("periode").addEventListener("change", afficherHeures);
     $("heures-actualiser").addEventListener("click", rafraichirHeures);
+
+    // ---------- Gérer : supprimer / modifier ----------
+    function dateCourteParis(ms) {
+      const j = jourEtMinutesParis(ms).jour.split("-");
+      return j[2] + "/" + j[1] + "/" + j[0];
+    }
+    function heureCourteParis(ms) {
+      const m = jourEtMinutesParis(ms).minutes;
+      return deuxChiffres(Math.floor(m / 60)) + ":" + deuxChiffres(Math.floor(m % 60));
+    }
+    function libelleLigne(p) {
+      const ms = new Date(p.heure_pointage).getTime();
+      return p.type_pointage + " — " + dateCourteParis(ms) + " à " + heureCourteParis(ms);
+    }
+    function texteErreurGerer(e) {
+      const t = e && e.message ? e.message : String(e);
+      return /permission|denied|droit|policy/i.test(t)
+        ? t + "\n\nLes droits de suppression/modification ne sont probablement pas activés : exécute une fois gestion-pointages-OPTIONNEL.sql dans Supabase (SQL Editor)."
+        : t;
+    }
+
+    function afficherGerer() {
+      const ul = $("gerer-liste");
+      ul.replaceChildren();
+      if (!gererLignes.length) {
+        ul.appendChild(creer("li", "vide", "Aucun pointage sur cette période."));
+      }
+      gererLignes.forEach(p => {
+        const li = creer("li", "gerer-ligne");
+        const coche = document.createElement("input");
+        coche.type = "checkbox";
+        coche.id = "gerer-coche-" + p.id;
+        coche.checked = gererSelection.has(p.id);
+        coche.addEventListener("change", () => {
+          if (coche.checked) gererSelection.add(p.id); else gererSelection.delete(p.id);
+          $("gerer-modif-formulaire").hidden = true;
+          actualiserInterface();
+        });
+        const etiquette = creer("label", "", libelleLigne(p));
+        etiquette.htmlFor = coche.id;
+        if (p.synchronise_le) etiquette.appendChild(creer("span", "synchro", "copié dans Excel"));
+        li.append(coche, etiquette);
+        ul.appendChild(li);
+      });
+      actualiserInterface();
+    }
+
+    async function chargerGerer(prefixe) {
+      if (!utilisateur) return;
+      const du = $("gerer-du").value;
+      const au = $("gerer-au").value;
+      if (!du || !au || du > au) {
+        afficherMessage("Choisis une période valide (la date de début doit précéder la date de fin).");
+        return;
+      }
+      operationEnCours = true;
+      actualiserInterface();
+      afficherMessage("Chargement…");
+      try {
+        const [a1, m1, j1] = du.split("-").map(Number);
+        const suivant = ajouterJours(au, 1).split("-").map(Number);
+        const debut = parisVersUtc(a1, m1, j1, 0, 0);
+        const fin = parisVersUtc(suivant[0], suivant[1], suivant[2], 0, 0);
+        const { data, error } = await client
+          .from("pointages")
+          .select("id, type_pointage, heure_pointage, synchronise_le")
+          .gte("heure_pointage", new Date(debut).toISOString())
+          .lt("heure_pointage", new Date(fin).toISOString())
+          .order("heure_pointage", { ascending: false })
+          .limit(500);
+        if (error) throw error;
+        gererLignes = data;
+        gererSelection.clear();
+        $("gerer-modif-formulaire").hidden = true;
+        afficherGerer();
+        afficherMessage((prefixe ? prefixe + "\n" : "") + data.length + " pointage(s) affiché(s)" +
+          (data.length === 500 ? " (limite de 500 atteinte : réduis la période)" : "") + ".");
+      } catch (e) {
+        afficherMessage("Erreur de lecture : " + (e && e.message ? e.message : e));
+      } finally {
+        operationEnCours = false;
+        actualiserInterface();
+      }
+    }
+
+    function ouvrirGerer() {
+      const aujourdhui = aujourdhuiParis();
+      if (!$("gerer-au").value) $("gerer-au").value = aujourdhui;
+      if (!$("gerer-du").value) $("gerer-du").value = ajouterJours(aujourdhui, -14);
+      chargerGerer();
+    }
+    $("gerer-afficher").addEventListener("click", () => chargerGerer());
+
+    $("gerer-supprimer").addEventListener("click", async () => {
+      if (!utilisateur || operationEnCours || gererSelection.size === 0) return;
+      const choix = gererLignes.filter(p => gererSelection.has(p.id));
+      const apercu = choix.slice(0, 8).map(p => "• " + libelleLigne(p)).join("\n");
+      const reste = choix.length > 8 ? "\n… et " + (choix.length - 8) + " autre(s)" : "";
+      const nbSynchro = choix.filter(p => p.synchronise_le).length;
+      const avert = nbSynchro
+        ? "\n\n" + nbSynchro + " pointage(s) déjà copié(s) dans Excel : le classeur ne sera PAS modifié (à corriger dans Excel)."
+        : "";
+      if (!window.confirm("Supprimer définitivement " + choix.length + " pointage(s) ?\n\n" + apercu + reste + avert +
+          "\n\nCette action est définitive.")) {
+        afficherMessage("Suppression annulée.");
+        return;
+      }
+
+      operationEnCours = true;
+      actualiserInterface();
+      afficherMessage("Suppression en cours…");
+      let resultat;
+      try {
+        const ids = choix.map(p => p.id);
+        const { data, error } = await client.from("pointages").delete().in("id", ids).select("id");
+        if (error) throw error;
+        const n = data ? data.length : 0;
+        pointagesComplets = null;
+        resultat = n === ids.length
+          ? n + " pointage(s) supprimé(s)."
+          : "Seulement " + n + " pointage(s) sur " + ids.length + " supprimé(s).\nSi aucun n'a été supprimé, les droits ne sont pas activés : exécute une fois gestion-pointages-OPTIONNEL.sql dans Supabase (SQL Editor).";
+      } catch (e) {
+        resultat = "Suppression impossible : " + texteErreurGerer(e);
+      } finally {
+        operationEnCours = false;
+        actualiserInterface();
+      }
+      await chargerGerer(resultat);
+      await chargerPointages();
+    });
+
+    $("gerer-modifier").addEventListener("click", () => {
+      if (gererSelection.size !== 1) return;
+      const p = gererLignes.find(x => gererSelection.has(x.id));
+      if (!p) return;
+      const ms = new Date(p.heure_pointage).getTime();
+      $("gerer-type").value = p.type_pointage;
+      $("gerer-date").max = aujourdhuiParis();
+      $("gerer-date").value = jourEtMinutesParis(ms).jour;
+      $("gerer-heure").value = heureCourteParis(ms);
+      $("gerer-modif-formulaire").hidden = false;
+      $("gerer-modif-formulaire").scrollIntoView({ block: "center" });
+    });
+    $("gerer-annuler").addEventListener("click", () => { $("gerer-modif-formulaire").hidden = true; });
+
+    $("gerer-enregistrer").addEventListener("click", async () => {
+      if (!utilisateur || operationEnCours || gererSelection.size !== 1) return;
+      const p = gererLignes.find(x => gererSelection.has(x.id));
+      if (!p) return;
+
+      const type = $("gerer-type").value;
+      const date = $("gerer-date").value;
+      const heure = $("gerer-heure").value;
+      if (!date || !heure) {
+        afficherMessage("Choisis la date et l'heure.");
+        return;
+      }
+      const [annee, mois, jour] = date.split("-").map(Number);
+      const [h, mi] = heure.split(":").map(Number);
+      const instant = parisVersUtc(annee, mois, jour, h, mi);
+      if (instant === null) {
+        afficherMessage("Cette heure n'existe pas (passage à l'heure d'été). Choisis-en une autre.");
+        return;
+      }
+      if (instant > Date.now() + 2 * 60000) {
+        afficherMessage("Cette date et cette heure sont dans le futur.");
+        return;
+      }
+      const nouveau = type + " — " + jour.toString().padStart(2, "0") + "/" + deuxChiffres(mois) + "/" + annee + " à " + deuxChiffres(h) + ":" + deuxChiffres(mi);
+      const avert = p.synchronise_le
+        ? "\n\nCe pointage a déjà été copié dans Excel : le classeur ne sera PAS modifié (à corriger dans Excel)."
+        : "";
+      if (!window.confirm("Remplacer :\n" + libelleLigne(p) + "\npar :\n" + nouveau + avert)) {
+        afficherMessage("Modification annulée.");
+        return;
+      }
+
+      operationEnCours = true;
+      actualiserInterface();
+      afficherMessage("Modification en cours…");
+      let resultat;
+      try {
+        const { data, error } = await client
+          .from("pointages")
+          .update({ type_pointage: type, heure_pointage: new Date(instant).toISOString() })
+          .eq("id", p.id)
+          .select("id");
+        if (error) throw error;
+        pointagesComplets = null;
+        resultat = data && data.length === 1
+          ? "Pointage modifié."
+          : "Rien n'a été modifié.\nLes droits ne sont probablement pas activés : exécute une fois gestion-pointages-OPTIONNEL.sql dans Supabase (SQL Editor).";
+      } catch (e) {
+        resultat = "Modification impossible : " + texteErreurGerer(e);
+      } finally {
+        operationEnCours = false;
+        actualiserInterface();
+      }
+      await chargerGerer(resultat);
+      await chargerPointages();
+    });
 
     // ---------- Démarrage ----------
     async function verifierSession() {
