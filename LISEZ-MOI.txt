@@ -1,0 +1,30 @@
+﻿APPLICATION DE POINTAGE - A METTRE EN LIGNE SUR TON DEPOT GITHUB
+================================================================
+
+Ce dossier contient 6 fichiers, deja configures avec l'adresse et la cle publique de ton projet Supabase :
+  index.html, manifest.webmanifest, sw.js, icon-192.png, icon-512.png, icon-maskable.png
+(Ne mets PAS ce LISEZ-MOI sur GitHub.)
+
+NOUVEAUTES
+  - Onglet "Pointage" : les 4 boutons habituels + "Pointage oublie" (type, date, heure de Paris).
+  - Onglet "Heures supp" : recuperation et recuperation majoree, par semaine et par jour, comme dans ton Excel.
+  - Installable comme une application sur Android.
+
+POUR LA METTRE EN LIGNE (sur ton depot actuel, celui qui contient deja ton index.html)
+  1. Extrais ce zip sur ton PC.
+  2. Sur github.com, ouvre ton depot du pointage, puis "Add file" > "Upload files".
+  3. Selectionne les 6 fichiers du dossier Appli-pointage (pas le LISEZ-MOI) et glisse-les ensemble.
+     Ils remplacent ton index.html actuel et ajoutent les 5 autres. Ne change pas leurs noms.
+  4. "Commit changes", puis attends 1 a 2 minutes.
+  5. Sur le telephone, ouvre l'adresse de ta page. Si l'ancienne version s'affiche, ferme completement le
+     navigateur et rouvre la page.
+  6. Dans Chrome (Android) : menu "..." > "Installer l'application" (ou "Ajouter a l'ecran d'accueil").
+
+A SAVOIR
+  - Onglet "Heures supp" > "Arrondi des pointages" : il doit etre identique a la ligne $ArrondiMinutes du script
+    Import-pointages.ps1 (par defaut : a l'heure). Le choix est memorise sur le telephone.
+  - Les lignes modifiees a la main dans Excel et les recuperations deja prises ne sont pas connues de
+    l'application : Excel reste la reference.
+  - Un pointage oublie est repris dans Excel au prochain import, sauf si la journee est deja complete et
+    verrouillee dans Excel (corrige alors la ligne dans Excel).
+  - La page ne supprime jamais de pointage : une erreur de saisie se corrige dans Supabase (Table Editor).

@@ -92,6 +92,15 @@
     .gerer-ligne label { margin: 0; flex: 1; font-size: 16px; color: inherit; }
     .gerer-ligne .synchro { display: block; font-size: 12px; color: #555; }
     .danger { background: #a52a2a; }
+
+    /* Récup (récupérations prises) */
+    .recup-ligne { padding: 10px 4px; border-bottom: 1px solid #f0f2f6; }
+    .recup-ligne:last-child { border-bottom: 0; }
+    .recup-ligne .titre-ligne { font-size: 16px; }
+    .recup-ligne .note-ligne { font-size: 13px; color: #555; margin-top: 2px; }
+    .recup-actions { display: flex; gap: 8px; }
+    .recup-actions button { width: auto; margin: 6px 0 0; padding: 6px 14px; font-size: 14px; }
+    #vue-recup .resume .valeur { font-size: 22px; }
   </style>
 </head>
 <body>
@@ -111,6 +120,7 @@
     <button id="onglet-pointage" role="tab" aria-selected="true">Pointage</button>
     <button id="onglet-heures" role="tab" aria-selected="false">Heures supp</button>
     <button id="onglet-gerer" role="tab" aria-selected="false">Gérer</button>
+    <button id="onglet-recup" role="tab" aria-selected="false">Récup</button>
   </div>
 
   <main id="appli" hidden>
@@ -192,8 +202,8 @@
         Calcul à partir des pointages enregistrés (premier pointage de chaque type par jour, arrondi comme à l'import
         Excel) : 8 h par jour, 7 h le vendredi, tout compte le week-end ; majoration de 25 % puis de 50 %
         au-delà de 4 h par semaine. Une journée incomplète ne compte pas tant qu'il manque un pointage.
-        L'arrondi doit être le même que dans le script d'import. Les lignes modifiées à la main dans Excel et les
-        récupérations déjà prises ne sont pas connues de cette page.
+        L'arrondi doit être le même que dans le script d'import. Les lignes modifiées à la main dans Excel ne sont
+        pas connues de cette page ; les récupérations prises se notent dans l'onglet « Récup ».
       </p>
     </div>
 
@@ -243,6 +253,67 @@
         Heure de Paris. Supprimer ou modifier un pointage ici ne change pas ton classeur Excel : si le pointage a déjà été
         copié dans Excel (mention « copié dans Excel »), corrige aussi la cellule dans Excel. Cette fonction demande que
         le fichier gestion-pointages-OPTIONNEL.sql ait été exécuté une fois dans Supabase.
+      </p>
+    </div>
+
+    <!-- ================= Onglet Récup ================= -->
+    <div id="vue-recup" hidden>
+      <section class="panel">
+        <h2>Récupérations prises</h2>
+        <div class="resume">
+          <div>
+            <div class="titre">Acquis (majorée)</div>
+            <div class="valeur" id="recup-acquis">—</div>
+          </div>
+          <div>
+            <div class="titre">Pris</div>
+            <div class="valeur" id="recup-pris">—</div>
+          </div>
+          <div>
+            <div class="titre">Solde</div>
+            <div class="valeur" id="recup-solde">—</div>
+            <div class="detail" id="recup-solde-jours"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2 id="recup-titre-formulaire">Ajouter une récupération</h2>
+        <label for="recup-date">Date</label>
+        <input id="recup-date" type="date">
+        <label for="recup-type">Type</label>
+        <select id="recup-type">
+          <option>Journée entière</option>
+          <option>Demi-journée</option>
+          <option>Autre durée</option>
+        </select>
+        <div class="ligne-champs" id="recup-autre" hidden>
+          <div>
+            <label for="recup-heures">Heures</label>
+            <input id="recup-heures" type="number" inputmode="numeric" min="0" max="23" step="1" value="1">
+          </div>
+          <div>
+            <label for="recup-minutes">Minutes</label>
+            <input id="recup-minutes" type="number" inputmode="numeric" min="0" max="59" step="1" value="0">
+          </div>
+        </div>
+        <p class="note" id="recup-apercu"></p>
+        <label for="recup-note">Note (facultatif)</label>
+        <input id="recup-note" type="text" maxlength="200" placeholder="Ex. : pont, rendez-vous…">
+        <button class="pointage" id="recup-enregistrer" disabled>Enregistrer la récupération</button>
+        <button class="secondaire" id="recup-annuler" hidden>Annuler la modification</button>
+      </section>
+
+      <section class="panel">
+        <h2>Historique</h2>
+        <ul class="gerer-liste" id="recup-liste"></ul>
+      </section>
+
+      <p class="note">
+        Solde = récupération majorée acquise (calculée comme dans l'onglet « Heures supp », avec le même arrondi) moins les
+        récupérations prises notées ici. Journée entière = 8 h (7 h le vendredi), demi-journée = 4 h (3 h 30 le vendredi),
+        comme dans le classeur. Ces récupérations ne sont pas copiées dans la feuille « Récupérations prises » d'Excel.
+        Cette fonction demande que le fichier recuperations-prises.sql ait été exécuté une fois dans Supabase.
       </p>
     </div>
   </main>
@@ -433,6 +504,8 @@
     let pointagesComplets = null;   // tous les pointages, chargés à l'ouverture de l'onglet « Heures supp »
     let gererLignes = [];           // pointages affichés dans l'onglet « Gérer »
     const gererSelection = new Set();
+    let recups = [];                // récupérations prises (onglet « Récup »), plus récentes d'abord
+    let recupEnEdition = null;      // identifiant de la ligne en cours de modification
 
     function afficherMessage(texte) {
       message.textContent = texte;
@@ -456,6 +529,8 @@
       $("gerer-supprimer").disabled = bloque || gererSelection.size === 0;
       $("gerer-modifier").disabled = bloque || gererSelection.size !== 1;
       $("gerer-enregistrer").disabled = bloque;
+      $("recup-enregistrer").disabled = bloque;
+      $("recup-annuler").disabled = bloque;
       login.disabled = !!utilisateur || operationEnCours;
       logout.hidden = !utilisateur;
       $("email").disabled = !!utilisateur;
@@ -470,15 +545,19 @@
       $("vue-pointage").hidden = nom !== "pointage";
       $("vue-heures").hidden = nom !== "heures";
       $("vue-gerer").hidden = nom !== "gerer";
+      $("vue-recup").hidden = nom !== "recup";
       $("onglet-pointage").setAttribute("aria-selected", String(nom === "pointage"));
       $("onglet-heures").setAttribute("aria-selected", String(nom === "heures"));
       $("onglet-gerer").setAttribute("aria-selected", String(nom === "gerer"));
+      $("onglet-recup").setAttribute("aria-selected", String(nom === "recup"));
       if (nom === "heures" && utilisateur && pointagesComplets === null) rafraichirHeures();
       if (nom === "gerer" && utilisateur) ouvrirGerer();
+      if (nom === "recup" && utilisateur) ouvrirRecup();
     }
     $("onglet-pointage").addEventListener("click", () => choisirOnglet("pointage"));
     $("onglet-heures").addEventListener("click", () => choisirOnglet("heures"));
     $("onglet-gerer").addEventListener("click", () => choisirOnglet("gerer"));
+    $("onglet-recup").addEventListener("click", () => choisirOnglet("recup"));
 
     // ---------- Derniers pointages ----------
     function dateLisible(iso) {
@@ -563,6 +642,9 @@
       gererSelection.clear();
       $("gerer-liste").replaceChildren();
       $("gerer-modif-formulaire").hidden = true;
+      recups = [];
+      recupEnEdition = null;
+      $("recup-liste").replaceChildren();
       afficherMessage("Tu es déconnecté.");
     });
 
@@ -1037,6 +1119,222 @@
       await chargerGerer(resultat);
       await chargerPointages();
     });
+
+    // ---------- Récup : récupérations prises ----------
+    function formaterSolde(minutes) {
+      const m = Math.floor(minutes + 0.5);
+      return m < 0 ? "−" + formaterHeures(-m) : formaterHeures(m);
+    }
+
+    function texteErreurRecup(e) {
+      const t = e && e.message ? e.message : String(e);
+      return /recuperations_prises|schema cache|does not exist|relation|permission|denied/i.test(t)
+        ? t + "\n\nLa table des récupérations n'existe probablement pas encore (ou les droits manquent) : exécute une fois recuperations-prises.sql dans Supabase (SQL Editor)."
+        : t;
+    }
+
+    // Même règles que la feuille « Récupérations prises » du classeur (colonne « durée retenue »).
+    function dureeRecupMinutes(date, type) {
+      const [a, m, j] = date.split("-").map(Number);
+      const vendredi = new Date(Date.UTC(a, m - 1, j)).getUTCDay() === 5;
+      if (type === "Journée entière") return vendredi ? 420 : 480;
+      if (type === "Demi-journée") return vendredi ? 210 : 240;
+      const h = parseInt($("recup-heures").value, 10);
+      const mi = parseInt($("recup-minutes").value, 10);
+      if (!Number.isInteger(h) || !Number.isInteger(mi) || h < 0 || h > 23 || mi < 0 || mi > 59) return null;
+      const total = h * 60 + mi;
+      return total > 0 ? total : null;
+    }
+
+    // Récupération majorée acquise (toutes périodes) : même calcul et même arrondi que l'onglet « Heures supp ».
+    function calculerAcquis() {
+      if (pointagesComplets === null) return null;
+      const jours = calculerJours(pointagesComplets, parseInt($("arrondi").value, 10));
+      let g = 0;
+      jours.forEach(j => { if (j.G !== null) g += j.G; });
+      return g;
+    }
+
+    function libelleRecup(r) {
+      return jourLisible(r.date_prise) + " — " + r.type_recup + " — " + formaterHeures(r.duree_minutes);
+    }
+
+    function majApercuRecup() {
+      const type = $("recup-type").value;
+      $("recup-autre").hidden = type !== "Autre durée";
+      const date = $("recup-date").value;
+      if (!date) { $("recup-apercu").textContent = ""; return; }
+      const d = dureeRecupMinutes(date, type);
+      $("recup-apercu").textContent = d === null
+        ? "Durée invalide : heures de 0 à 23, minutes de 0 à 59, durée non nulle."
+        : "Durée retenue : " + formaterHeures(d) + ".";
+    }
+
+    function afficherRecup() {
+      const acquis = calculerAcquis();
+      const pris = recups.reduce((somme, r) => somme + r.duree_minutes, 0);
+      $("recup-pris").textContent = formaterHeures(pris);
+      if (acquis === null) {
+        $("recup-acquis").textContent = "—";
+        $("recup-solde").textContent = "—";
+        $("recup-solde-jours").textContent = "";
+      } else {
+        const solde = Math.floor(acquis - pris + 0.5);
+        $("recup-acquis").textContent = formaterHeures(acquis);
+        $("recup-solde").textContent = formaterSolde(solde);
+        $("recup-solde-jours").textContent = solde < 0 ? "Solde négatif" : formaterJoursEtHeures(solde);
+      }
+
+      const ul = $("recup-liste");
+      ul.replaceChildren();
+      if (!recups.length) ul.appendChild(creer("li", "vide", "Aucune récupération prise pour le moment."));
+      recups.forEach(r => {
+        const li = creer("li", "recup-ligne");
+        li.appendChild(creer("div", "titre-ligne", libelleRecup(r)));
+        if (r.note) li.appendChild(creer("div", "note-ligne", r.note));
+        const actions = creer("div", "recup-actions");
+        const modifier = creer("button", "secondaire", "Modifier");
+        modifier.addEventListener("click", () => modifierRecup(r.id));
+        const supprimer = creer("button", "danger", "Supprimer");
+        supprimer.addEventListener("click", () => supprimerRecup(r.id));
+        actions.append(modifier, supprimer);
+        li.appendChild(actions);
+        ul.appendChild(li);
+      });
+    }
+
+    async function chargerRecups(prefixe) {
+      if (!utilisateur) return;
+      operationEnCours = true;
+      actualiserInterface();
+      afficherMessage("Chargement…");
+      try {
+        if (pointagesComplets === null) pointagesComplets = await chargerTousLesPointages();
+        const { data, error } = await client
+          .from("recuperations_prises")
+          .select("id, date_prise, type_recup, duree_minutes, note")
+          .order("date_prise", { ascending: false })
+          .order("id", { ascending: false })
+          .limit(1000);
+        if (error) throw error;
+        recups = data;
+        afficherRecup();
+        afficherMessage((prefixe ? prefixe + "\n" : "") + "Solde de récupération à jour.");
+      } catch (e) {
+        afficherMessage((prefixe ? prefixe + "\n" : "") + "Erreur de lecture : " + texteErreurRecup(e));
+      } finally {
+        operationEnCours = false;
+        actualiserInterface();
+      }
+    }
+
+    function quitterEditionRecup() {
+      recupEnEdition = null;
+      $("recup-titre-formulaire").textContent = "Ajouter une récupération";
+      $("recup-enregistrer").textContent = "Enregistrer la récupération";
+      $("recup-annuler").hidden = true;
+      $("recup-note").value = "";
+    }
+
+    function ouvrirRecup() {
+      if (!$("recup-date").value) $("recup-date").value = aujourdhuiParis();
+      majApercuRecup();
+      chargerRecups();
+    }
+    ["recup-date", "recup-type", "recup-heures", "recup-minutes"].forEach(id => {
+      $(id).addEventListener("input", majApercuRecup);
+      $(id).addEventListener("change", majApercuRecup);
+    });
+    $("recup-annuler").addEventListener("click", () => { quitterEditionRecup(); majApercuRecup(); });
+
+    function modifierRecup(id) {
+      const r = recups.find(x => x.id === id);
+      if (!r) return;
+      recupEnEdition = id;
+      $("recup-date").value = r.date_prise;
+      $("recup-type").value = r.type_recup;
+      $("recup-heures").value = Math.floor(r.duree_minutes / 60);
+      $("recup-minutes").value = r.duree_minutes % 60;
+      $("recup-note").value = r.note || "";
+      $("recup-titre-formulaire").textContent = "Modifier la récupération";
+      $("recup-enregistrer").textContent = "Enregistrer la modification";
+      $("recup-annuler").hidden = false;
+      majApercuRecup();
+      $("recup-titre-formulaire").scrollIntoView({ block: "start" });
+    }
+
+    $("recup-enregistrer").addEventListener("click", async () => {
+      if (!utilisateur || operationEnCours) return;
+      const date = $("recup-date").value;
+      const type = $("recup-type").value;
+      if (!date) { afficherMessage("Choisis la date de la récupération."); return; }
+      const duree = dureeRecupMinutes(date, type);
+      if (duree === null) {
+        afficherMessage("Durée invalide : heures de 0 à 23, minutes de 0 à 59, durée non nulle.");
+        return;
+      }
+      const note = $("recup-note").value.trim().slice(0, 200);
+      const enEdition = recupEnEdition;
+      const autres = recups.filter(r => r.id !== enEdition);
+
+      let texte = (enEdition ? "Enregistrer la modification :\n" : "Enregistrer cette récupération :\n") +
+        libelleRecup({ date_prise: date, type_recup: type, duree_minutes: duree });
+      if (autres.some(r => r.date_prise === date)) texte += "\n\nUne autre récupération est déjà enregistrée ce jour-là.";
+      const acquis = calculerAcquis();
+      if (acquis !== null) {
+        const solde = Math.floor(acquis - autres.reduce((somme, r) => somme + r.duree_minutes, 0) - duree + 0.5);
+        if (solde < 0) texte += "\n\nAttention : ton solde deviendrait négatif (" + formaterSolde(solde) + ").";
+      }
+      if (!window.confirm(texte)) { afficherMessage("Annulé."); return; }
+
+      operationEnCours = true;
+      actualiserInterface();
+      afficherMessage("Enregistrement en cours…");
+      let resultat;
+      try {
+        const champs = { date_prise: date, type_recup: type, duree_minutes: duree, note: note || null };
+        const reponse = enEdition
+          ? await client.from("recuperations_prises").update(champs).eq("id", enEdition).select("id")
+          : await client.from("recuperations_prises").insert(champs).select("id");
+        if (reponse.error) throw reponse.error;
+        if (enEdition && (!reponse.data || reponse.data.length !== 1)) throw new Error("Aucune ligne modifiée.");
+        resultat = enEdition ? "Récupération modifiée." : "Récupération enregistrée.";
+        quitterEditionRecup();
+      } catch (e) {
+        resultat = "Enregistrement impossible : " + texteErreurRecup(e);
+      } finally {
+        operationEnCours = false;
+        actualiserInterface();
+      }
+      await chargerRecups(resultat);
+    });
+
+    async function supprimerRecup(id) {
+      if (!utilisateur || operationEnCours) return;
+      const r = recups.find(x => x.id === id);
+      if (!r) return;
+      if (!window.confirm("Supprimer définitivement cette récupération ?\n\n" + libelleRecup(r) + (r.note ? "\n" + r.note : ""))) {
+        afficherMessage("Suppression annulée.");
+        return;
+      }
+      operationEnCours = true;
+      actualiserInterface();
+      afficherMessage("Suppression en cours…");
+      let resultat;
+      try {
+        const { data, error } = await client.from("recuperations_prises").delete().eq("id", id).select("id");
+        if (error) throw error;
+        if (!data || data.length !== 1) throw new Error("Rien n'a été supprimé.");
+        if (recupEnEdition === id) quitterEditionRecup();
+        resultat = "Récupération supprimée.";
+      } catch (e) {
+        resultat = "Suppression impossible : " + texteErreurRecup(e);
+      } finally {
+        operationEnCours = false;
+        actualiserInterface();
+      }
+      await chargerRecups(resultat);
+    }
 
     // ---------- Démarrage ----------
     async function verifierSession() {
